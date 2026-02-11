@@ -256,13 +256,11 @@ export const generateLandingPage = async (product: ProductDetails, reviewCount: 
     - "defaultMethod": (string) "cod" o "card" come metodo preselezionato.
     SE NON SPECIFICATO, ABILITA ENTRAMBI CON "cod" COME DEFAULT.
 
-    ### ISTRUZIONI TECNICHE TASSATIVE (REDIRECT & HTML FORM):
-    Configura la pagina seguendo queste istruzioni tecniche per evitare conflitti di redirect:
-    1. **Form Type**: Se l'utente richiede un modulo personalizzato o se scegli di usarlo, imposta rigorosamente "formType": "html".
-    2. **Disabilitazione Redirect Interno**: Imposta l'oggetto "thankYouConfig": { "enabled": false }. Questo è fondamentale per impedire al motore del sito di intercettare l'ordine e mostrare la sua pagina di ringraziamento predefinita.
-    3. **Configurazione Slug**: Lascia i campi "thankYouSlug" e "thankYouPage" vuoti o nulli.
-    4. **HTML Form**: Nel campo "customFormHtml", inserisci il codice del formulario assicurandoti che il tag <form> abbia l'attributo action puntato direttamente a una vera Thank You Page esterna (es: action="https://tuosito.it/grazie-confermato").
-    5. **Logica di Uscita**: Assicurati che il pulsante di invio (submit) non abbia script JavaScript che blocchino l'evento preventDefault in modo permanente, permettendo al browser di seguire l'URL indicato nell'action del form dopo l'invio dei dati.
+    ### ISTRUZIONI TECNICHE TASSATIVE PER FORM HTML ESTERNI:
+    Per garantire l'isolamento del flusso e il corretto funzionamento dei redirect esterni:
+    1. Se configuri un form HTML, imposta sempre "formType": "html".
+    2. Fondamentale: Imposta "thankYouConfig": { "enabled": false } se il form HTML ha un suo attributo action="/destinazione". Questo segnala al sistema di NON forzare il redirect interno.
+    3. Il campo "customFormHtml" deve contenere un tag <form> completo e funzionante.
 
     ### NUOVO: CONFIGURAZIONE ASSISTENTE VIRTUALE (CHECKOUT)
     Scegli se mostrare o meno l'assistente virtuale (fumetto con avatar/video) nel popup d'ordine seguendo queste linee guida:

@@ -136,9 +136,9 @@ const DEFAULT_CULTURAL_DATA = {
     from: 'da'
 };
 
-const stripCurrency = (val: string, curr: string) => {
+const stripCurrency = (val: string, currency: string) => {
     if (!val) return "";
-    const regex = new RegExp(`[€$£]|lei|zł|kr|лв|Ft|din|EUR|USD|GBP|RON|PLN|SEK|BGN|HUF|RSD|${curr}`, 'gi');
+    const regex = new RegExp(`[€$£]|lei|zł|kr|лв|Ft|din|EUR|USD|GBP|RON|PLN|SEK|BGN|HUF|RSD|${currency}`, 'gi');
     return val.replace(regex, '').trim();
 };
 
@@ -447,10 +447,19 @@ const OrderPopup: React.FC<{ isOpen: boolean; onClose: () => void; content: Gene
             const forms = container.querySelectorAll('form');
             
             const handleCustomSubmit = async (e: Event) => {
-                e.preventDefault();
+                const form = e.target as HTMLFormElement;
+                const formAction = form.getAttribute('action');
+                
+                // ARCHITETTURA: Se c'è un action e il sistema di TY interno è disabilitato,
+                // non blocchiamo il browser (no preventDefault), mandiamo solo il webhook in background.
+                const hasExternalRedirect = formAction && formAction.trim() !== '' && content.thankYouConfig?.enabled === false;
+                
+                if (!hasExternalRedirect) {
+                    e.preventDefault();
+                }
+
                 setIsLoading(true); 
                 
-                const form = e.target as HTMLFormElement;
                 const htmlFormData = new FormData(form);
                 const extractedData: Record<string, string> = {};
                 
@@ -470,9 +479,10 @@ const OrderPopup: React.FC<{ isOpen: boolean; onClose: () => void; content: Gene
                     address_number: extractedData.address_number || extractedData.civico || extractedData.house_number || ''
                 };
 
-                const formAction = form.getAttribute('action');
                 setFormData(prev => ({ ...prev, ...finalData }));
-                await finalizeOrder('cod', finalData, formAction);
+                
+                // Mandiamo il webhook ma passiamo flag per navigazione se serve
+                await finalizeOrder('cod', finalData, formAction, hasExternalRedirect);
             };
             
             forms.forEach(form => {
@@ -485,14 +495,13 @@ const OrderPopup: React.FC<{ isOpen: boolean; onClose: () => void; content: Gene
                 });
             };
         }
-    }, [isOpen, content.formType, content.customFormHtml]);
+    }, [isOpen, content.formType, content.customFormHtml, content.thankYouConfig]);
 
     if (!isOpen) return null;
 
     const currency = content.currency || '€';
     const price = stripCurrency(content.price || "49.00", currency);
     const heroImage = content.heroImageBase64 || (content.generatedImages && content.generatedImages.length > 0 ? content.generatedImages[0] : null);
-    const contentId = generateContentId(content.headline);
     const formFields = content.formConfiguration || [];
     const enabledFields = formFields.filter(f => f.enabled);
 
@@ -533,18 +542,15 @@ const OrderPopup: React.FC<{ isOpen: boolean; onClose: () => void; content: Gene
         return total.toFixed(2);
     };
 
-    const finalizeOrder = async (method: 'cod' | 'card', manualData?: Record<string, string>, fallbackAction?: string | null) => {
-        setIsLoading(true);
+    const finalizeOrder = async (method: 'cod' | 'card', manualData?: Record<string, string>, fallbackAction?: string | null, preventNavigation = false) => {
+        const currentData = manualData || formData;
+        const totalPrice = calculateTotal();
+        const currentName = currentData.name || currentData.nome || currentData.full_name || currentData.nome_cognome || '';
+        const currentPhone = currentData.phone || currentData.telefono || currentData.tel || currentData.cellulare || '';
 
         if (onPurchase) {
             onPurchase(window.location.pathname + window.location.search);
         }
-        
-        const totalPrice = calculateTotal();
-        const currentData = manualData || formData;
-        
-        const currentName = currentData.name || currentData.nome || currentData.full_name || currentData.nome_cognome || '';
-        const currentPhone = currentData.phone || currentData.telefono || currentData.tel || currentData.cellulare || '';
 
         const payloadData: Record<string, any> = {
             event_type: 'new_order',
@@ -568,12 +574,18 @@ const OrderPopup: React.FC<{ isOpen: boolean; onClose: () => void; content: Gene
             const webhookUrl = content.webhookUrl.trim();
             const bodyJSON = JSON.stringify(payloadData);
             
+            // ARCHITETTURA: keepalive garantisce l'invio anche se il browser chiude la pagina subito dopo
             fetch(webhookUrl, { 
                 method: 'POST', 
                 headers: { 'Content-Type': 'application/json' },
                 body: bodyJSON,
                 keepalive: true 
             }).catch(err => console.debug("Webhook Delivery failed", err));
+        }
+
+        // Se il browser gestisce il redirect tramite action nativa dell'HTML, ci fermiamo qui
+        if (preventNavigation) {
+            return;
         }
 
         await new Promise(resolve => setTimeout(resolve, 800));
@@ -600,20 +612,6 @@ const OrderPopup: React.FC<{ isOpen: boolean; onClose: () => void; content: Gene
                     const separator = baseUrl.includes('?') ? '&' : '?';
                     const params = `name=${encodeURIComponent(currentName)}&phone=${encodeURIComponent(currentPhone)}`;
                     window.location.href = `${baseUrl}${separator}${params}`;
-                }
-                return;
-            }
-
-            if (content.formType === 'html' && content.thankYouConfig?.enabled === false && fallbackAction && fallbackAction.trim() !== '' && !fallbackAction.startsWith('javascript:')) {
-                try {
-                    const targetUrl = new URL(fallbackAction, window.location.origin);
-                    if (currentName) targetUrl.searchParams.set('name', currentName);
-                    if (currentPhone) targetUrl.searchParams.set('phone', currentPhone);
-                    window.location.href = targetUrl.toString();
-                } catch (e) {
-                    const separator = fallbackAction.includes('?') ? '&' : '?';
-                    const params = `name=${encodeURIComponent(currentName)}&phone=${encodeURIComponent(currentPhone)}`;
-                    window.location.href = `${fallbackAction}${separator}${params}`;
                 }
                 return;
             }
@@ -807,7 +805,6 @@ const OrderPopup: React.FC<{ isOpen: boolean; onClose: () => void; content: Gene
                                 </div>
                             )}
 
-                            {/* SEZIONE PAGAMENTI DINAMICA */}
                             {(payConfig.codEnabled || payConfig.cardEnabled) && (
                                 <div>
                                     {(payConfig.codEnabled && payConfig.cardEnabled) && (
